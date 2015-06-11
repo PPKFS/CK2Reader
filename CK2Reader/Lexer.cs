@@ -45,7 +45,7 @@ namespace CK2Reader
             List<Token> tokens = new List<Token>();
             while(true)
             {
-                if (CurrentToken == Data.Count())
+                if (CurrentToken >= Data.Count())
                     break;
                 Token token = new Token();
                 token.Prefix = Read16BitValue();
@@ -149,8 +149,6 @@ namespace CK2Reader
         {
             if (!ConsumeByte(expected))
                 throw new InvalidOperationException(String.Format("Expected {0:X} and found {1:X} at location {2:X}", expected, Data[CurrentToken], CurrentToken));
-            else
-                return;// Console.WriteLine("Consumed {0:X}", expected);
         }
 
         public void Consume(byte[] expected)
@@ -162,7 +160,6 @@ namespace CK2Reader
                     throw new InvalidOperationException(String.Format("Expected {0:X} and found {1:X} at location {2:X}", expected, Data[CurrentToken], CurrentToken));
                 }
             }
-            return;//Console.WriteLine("Consumed {0:X}", ByteArrayToString(expected));
         }
 
         public void Consume(string expected)
@@ -172,7 +169,6 @@ namespace CK2Reader
                 if(!ConsumeByte(b))
                     throw new InvalidOperationException(String.Format("Expected {0:X} and found {1:X} at location {2:X}", expected, Data[CurrentToken], CurrentToken));
             }
-            return;//Console.WriteLine("Consumed {0}", expected);
         }
 
         public void Consume(Special expected)
@@ -189,8 +185,6 @@ namespace CK2Reader
             }
             if(!ret)
                 throw new InvalidOperationException(String.Format("Expected {0:X} and found {1:X} at location {2:X}", expected, Data[CurrentToken], CurrentToken));
-            else
-                return;//Console.WriteLine("Consumed {0}", expected);
         }
 
         public byte[] Read(uint bytes)
@@ -198,7 +192,6 @@ namespace CK2Reader
             byte[] destination = new byte[bytes];
             Buffer.BlockCopy(Data, (int)CurrentToken, destination, 0, (int)bytes);
             CurrentToken += bytes;
-            //Console.WriteLine("Read {0} bytes", bytes);
             return destination;
         }
 
@@ -208,7 +201,6 @@ namespace CK2Reader
             uint old = CurrentToken;
             while (!(Data[CurrentToken] == 0x01 && Data[CurrentToken + 1] == 0x00))
                 bytes.Add(Read(1)[0]);
-            //Consume(Special.RecordSplitter);
             return bytes.ToArray();
         }
 
@@ -217,41 +209,5 @@ namespace CK2Reader
             byte[] data = Read(2);
             return BitConverter.ToUInt16(data, 0);
         }
-
-        /*public byte ReadLengthPrefix()
-        {
-            Consume(Special.LengthPrefix);
-            byte[] length = Read(1);
-            Consume((byte)0x00);
-            return length[0];
-        }
-
-        public string ReadLengthPrefixedString()
-        {
-            byte len = ReadLengthPrefix();
-            byte[] stringData = Read(len);
-            string str = System.Text.Encoding.ASCII.GetString(stringData);
-            Console.WriteLine("Read {0}", str);
-            return str;
-        }
-
-        public uint Read32BitValue()
-        {
-            Consume(0x14);
-            Consume((byte)0x00);
-            byte[] bytes = Read(4);
-            return BitConverter.ToUInt32(bytes, 0);
-        }
-
-        public void ConsumeUntil(ushort suffix)
-        {
-            byte fst = (byte)((suffix & 0xFF00) >> 8);
-            byte snd = (byte)(suffix & 0x00FF);
-            uint old = CurrentToken;
-            while (!(Data[CurrentToken] == fst && Data[CurrentToken + 1] == snd))
-                CurrentToken++;
-            Consume(new byte[] { fst, snd });
-            Console.WriteLine("Consumed {0} bytes.", (CurrentToken - old));
-        }*/
     }
 }
