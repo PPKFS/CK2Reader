@@ -11,10 +11,9 @@ namespace CK2Reader
     {
         static void Main(string[] args)
         {
-            byte[] fileBytes = File.ReadAllBytes("Ironman_Oman.ck2");
-            Lexer lexer = new Lexer(fileBytes);
-            List<Token> tokens = lexer.Lex();
-            CK2Game game = new CK2Game();
+            byte[] fileBytes = File.ReadAllBytes("Clean.ck2");
+            Parser p = new Parser(fileBytes);
+            CK2Game game = p.Parse();
             Console.ReadLine();
         }
     }

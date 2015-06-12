@@ -21,12 +21,6 @@ namespace CK2Reader
          * 0E 00 - a yes/no value
         */
         private static ushort[] SpecialPrefixes = new ushort[] { 0x0004, 0x000C, 0x000F, 0x0003, 0x0190, 0x000D, 0x0017, 0x000E, 0x0014 };
-        public enum Special
-        {
-            RecordSplitter = 0x0100,
-            LengthPrefix = 0x0F00,
-            PlayerShieldEnd = 0xFB2A
-        };
 
         public byte[] Data { get; private set; }
         public bool IsVerbose { get; set; }
@@ -58,7 +52,8 @@ namespace CK2Reader
                 
                 if (!Array.Exists(SpecialPrefixes, x => x == token.Prefix)) 
                 {
-                    Consume(Special.RecordSplitter);
+                    Consume(0x10);
+                    Consume(0x00); //0100, =
                     valType = Read16BitValue();
                 }
                 else
@@ -107,7 +102,7 @@ namespace CK2Reader
                     case 0x0017:
                         token.HeaderValue = Read16BitValue();
                         token.Type = Token.TokenType.Identifier;
-                        token.Data = ReadUntilRecordSeparator();
+                        token.Data = ReadUntilEquals();
                         break;
                     default:
                         switch(token.Prefix)
@@ -151,17 +146,6 @@ namespace CK2Reader
                 throw new InvalidOperationException(String.Format("Expected {0:X} and found {1:X} at location {2:X}", expected, Data[CurrentToken], CurrentToken));
         }
 
-        public void Consume(byte[] expected)
-        {
-            foreach(byte b in expected)
-            {
-                if(!ConsumeByte(b))
-                {
-                    throw new InvalidOperationException(String.Format("Expected {0:X} and found {1:X} at location {2:X}", expected, Data[CurrentToken], CurrentToken));
-                }
-            }
-        }
-
         public void Consume(string expected)
         {
             foreach (byte b in System.Text.Encoding.ASCII.GetBytes(expected.ToCharArray()))
@@ -169,22 +153,6 @@ namespace CK2Reader
                 if(!ConsumeByte(b))
                     throw new InvalidOperationException(String.Format("Expected {0:X} and found {1:X} at location {2:X}", expected, Data[CurrentToken], CurrentToken));
             }
-        }
-
-        public void Consume(Special expected)
-        {
-            bool ret = false;
-            switch(expected)
-            {
-                case Special.RecordSplitter:
-                    ret = ConsumeByte(0x01) && ConsumeByte(0x00);
-                    break;
-                case Special.LengthPrefix:
-                    ret = ConsumeByte(0x0F) && ConsumeByte(0x00);
-                    break;
-            }
-            if(!ret)
-                throw new InvalidOperationException(String.Format("Expected {0:X} and found {1:X} at location {2:X}", expected, Data[CurrentToken], CurrentToken));
         }
 
         public byte[] Read(uint bytes)
@@ -195,7 +163,7 @@ namespace CK2Reader
             return destination;
         }
 
-        public byte[] ReadUntilRecordSeparator()
+        public byte[] ReadUntilEquals()
         {
             List<byte> bytes = new List<byte>();
             uint old = CurrentToken;
