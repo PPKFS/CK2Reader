@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -8,14 +9,66 @@ namespace CK2Reader
 {
     class Parser
     {
-        protected struct Field
+        private enum IDType
+        {
+            ID16Bit,
+            ID32Bit,
+            String
+        }
+
+        private struct Field
         {
             public object id;
             public object data;
+            public IDType type;
         }
+
+        private static Dictionary<ushort, string> idToString = new Dictionary<ushort,string>()
+            {
+                {0x0116, "version"},
+                {0x279B, "date"},
+                {0x292D, "player"},
+                {0x2F7F, "savelocation"},
+                {0x289E, "no_idea"},
+                {0x28E0, "no_idea2"},
+                {0x2E9A, "player_shield"},
+                {0x2AFB, "player_realm"},
+                {0x2851, "rebel"},
+                {0x27F2, "unit"},
+                {0x28C8, "subunit"},
+                {0x2817, "start_date"},
+                {0x28C2, "flags"},
+                {0x2744, "dynasties"},
+                {0x2717, "character"},
+                {0x2EEB, "dyn_title"},
+                {0x2BA7, "delayed_event"},
+                {0x28B7, "relation"},
+                {0x2A79, "active_ambition"},
+                {0x313A, "active_focus"},
+                {0x2A78, "active_plot"},
+                {0x2A7A, "active_faction"},
+                {0x000B, "id"},
+                {0x278B, "religion"},
+                {0x277E, "provinces"},
+                {0x289A, "title"},
+                {0x2820, "diplomacy"},
+                {0x2839, "combat"},
+                {0x2896, "war"},
+                {0x282B, "active_war"},
+                {0x282C, "previous_war"},
+                {0x2C7F, "next_outbreak_id"},
+                {0x2C7E, "disease"},
+                {0x015F, "income_statistics"},
+                {0x0160, "nation_size_statistics"},
+                {0x2D36, "no_idea_again"},
+                {0x2B35, "character_action"},
+                {0x1A2, "checksum"}
+            };
 
         public byte[] Data { get; private set; }
         public uint CurrentToken { get; private set; }
+
+        private HashSet<ushort> undefinedSet = new HashSet<ushort>();
 
         public Parser(byte[] bytes)
         {
@@ -27,13 +80,17 @@ namespace CK2Reader
         {
             CK2Game game = new CK2Game();
             Consume("CK2bin");
+            List<Field> fields = new List<Field>();
             while (true)
             {
                 if (CurrentToken >= Data.Count())
                     break;
-                Field field = ReadField();
 
+                Field f = ReadField();
+                fields.Add(DecodeField(f));
             }
+
+            File.WriteAllLines("ids.txt", undefinedSet.Select(t => String.Format("ID: {0:X}", t)));
             return null;
         }
 
@@ -95,18 +152,34 @@ namespace CK2Reader
             Field field = new Field();
             //0x000F (length-prefixed string) and 0x0017 (length-prefixed identifier string)
             //0x0014 (32-bit ID) and 0x000C (32-bit value)
-            field.id = fieldID == 0x000F || fieldID == 0x0017 ?
-                (object)System.Text.Encoding.ASCII.GetString(Read(Read16BitValue())) : 
-                fieldID == 0x0014 || fieldID == 0x000C ? Read32BitValue() : fieldID;
+            if(fieldID == 0x000F || fieldID == 0x0017)
+            {
+                field.id = (object)System.Text.Encoding.ASCII.GetString(Read(Read16BitValue()));
+                field.type = IDType.String;
+            }
+            else if(fieldID == 0x0014 || fieldID == 0x000C)
+            {
+                field.id = Read32BitValue();
+                field.type = IDType.ID32Bit;
+            }
+            else
+            {
+                field.id = fieldID;
+                field.type = IDType.ID16Bit;
+            }
             field.data = null;
 
-            if(Peek16Bit(0xA2, 0x01)) //for some reason, there is a stray } at the end of the file.
-                field.id = 0x01A2;
+            if (Peek16Bit(0xA2, 0x01)) //for some reason, there is a stray } at the end of the file.
+            {
+                field.id = (ushort)0x01A2;
+                field.type = IDType.ID16Bit;
+            }
 
             if (fieldID == 0x0003) //sometimes we have { } without an ID, for some reason. give it no ID and then move the pointer back.
             {
                 CurrentToken -= 2;
-                field.id = 0x0000;
+                field.id = (ushort)0x0000;
+                field.type = IDType.ID16Bit;
             }
             else
             {
@@ -179,14 +252,48 @@ namespace CK2Reader
                 field.data = Read(1)[0] == 0x01;
             else if(Data[CurrentToken+1] >= 0x27 && Data[CurrentToken+1] <= 0x30) //enum values seem to be around this
             {
-                /*(Peek16Bit(0x99, 0x27) || Peek16Bit(0xBF, 0x29) || Peek16Bit(0x55, 0x29) || Peek16Bit(0xBE, 0x29) ||
-                Peek16Bit(0xC1, 0x29) || Peek16Bit(0x1E, 0x28) || Peek16Bit(0x0B, 0x2B) || Peek16Bit(0x38, 0x2C) || Peek16Bit(0x82, 0x30) ||
-                Peek16Bit(0x69, 0x2F) || Peek16Bit(0xBD, 0x2F) || Peek16Bit(0x07, 0x2B)) //enum value*/
                 field.data = Read16BitValue();
             }
             if (field.data == null)
                 System.Diagnostics.Debugger.Break();
             return field;
+        }
+
+        private Field DecodeField(Field f)
+        {
+            Field decodedField = new Field();
+            switch(f.type)
+            {
+                case IDType.ID16Bit:
+                    string id;
+                    idToString.TryGetValue((ushort)f.id, out id);
+                    if (id == null)
+                    {
+                        System.Diagnostics.Debugger.Break();
+                        //undefinedSet.Add((ushort)f.id);
+                    }
+                    decodedField.id = id;
+                    break;
+
+                case IDType.ID32Bit:
+                    break;
+                case IDType.String:
+                    break;
+
+            }
+            if (f.id is ushort)
+            {
+               
+            }
+            else if (f.id is string)
+            {
+
+            }
+            else if (f.id is uint)
+            {
+
+            }
+            return decodedField;
         }
     }
 }
