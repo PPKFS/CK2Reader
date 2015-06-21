@@ -10,9 +10,7 @@ namespace CK2Reader
     {
         public string Version { get; set; }
         public DateTime CurrentDate { get; set; }
-        public uint PlayerID { get; set; }
-        public uint PlayerType { get; set; }
-        public string PlayerTitle { get; set; }
+        public Identifier PlayerID { get; set; }
         public string FilePath { get; set; }
     }
 }

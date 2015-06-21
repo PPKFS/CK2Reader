@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace CK2Reader
 {
@@ -24,9 +23,9 @@ namespace CK2Reader
             String,
             Object,
             Array32Bit,
-            Array32BitFloat,
-            Array64BitFloat,
-            Float64Bit,
+            FloatArray,
+            DoubleArray,
+            Double,
             Bool,
             Enum
         }
@@ -60,8 +59,8 @@ namespace CK2Reader
                 {0x279B, "date"},
                 {0x292D, "player"},
                 {0x2F7F, "savelocation"},
-                {0x289E, "seed"},
-                {0x28E0, "no_idea2"},
+                {0x289E, "seed"}, //ironman only
+                //{0x28E0, "no_idea2"},
                 {0x2E9A, "player_shield"},
                 {0x2AFB, "player_realm"},
                 {0x2851, "rebel"},
@@ -376,7 +375,7 @@ namespace CK2Reader
                 {0x2E2C, "attacker_score"},
                 {0x2E40, "vassal_liege"},
                 {0x2B62, "thirdparty"},
-                {0x00F4, "dunno"}
+                //{0x00F4, "dunno"}
             };
 
         public byte[] Data { get; private set; }
@@ -393,24 +392,18 @@ namespace CK2Reader
 
         public CK2Game Parse()
         {
-            CK2Game game = new CK2Game();
             Consume("CK2bin");
             List<Field> fields = new List<Field>();
-            while (true)
-            {
-                if (CurrentToken >= Data.Count())
-                    break;
+            while (CurrentToken < Data.Length)
+                fields.Add(DecodeField(ReadField()));
 
-                Field f = ReadField();
-                fields.Add(DecodeField(f));
-            }
-
-            File.WriteAllLines("undefined_ids.txt", undefinedSet.Select(t => t+"\r\n"));
-            StreamWriter s = File.AppendText("undefined_ids.txt");
+            File.WriteAllLines("undefined_ids.txt", undefinedSet.Select(t => t+System.Environment.NewLine));
             File.WriteAllLines("undefined_ids_plain.txt", undefinedIDs.Select(t => String.Format("{{{0:X}, }},", t)));
-            s.WriteLine("{0} IDs were undefined and {1} were defined.", undefinedSet.Count, idToString.Count);
-            s.Close();
-            return null;
+
+            using(StreamWriter s = File.AppendText("undefined_ids.txt"))
+                s.WriteLine("{0} IDs were undefined and {1} were defined.", undefinedSet.Count, idToString.Count);
+
+            return PopulateGame(fields);
         }
 
         private bool ConsumeByte(byte expected)
@@ -459,17 +452,24 @@ namespace CK2Reader
             return BitConverter.ToUInt16(data, 0);
         }
 
-        public uint Read32BitValue()
+        public int Read32BitValue()
         {
             byte[] data = Read(4);
-            return BitConverter.ToUInt32(data, 0);
+            return BitConverter.ToInt32(data, 0);
+        }
+
+        public float ReadFloat()
+        {
+            return 5;
         }
 
         private Field ReadField()
         {
             ushort fieldID = Read16BitValue();
-            Field field = new Field();
+            Field field = new Field() { data = null };
+
             field.location = CurrentToken - 2;
+
             //0x000F (length-prefixed string) and 0x0017 (length-prefixed identifier string)
             //0x0014 (32-bit ID) and 0x000C (32-bit value)
             if(fieldID == 0x000F || fieldID == 0x0017)
@@ -487,8 +487,7 @@ namespace CK2Reader
                 field.id = fieldID;
                 field.idType = FieldType.ID16Bit;
             }
-            field.data = null;
-
+            
             if (Peek16Bit(0xA2, 0x01)) //for some reason, there is a stray } at the end of the file.
             {
                 field.id = (ushort)0x01A2;
@@ -513,12 +512,10 @@ namespace CK2Reader
                 field.dataType = FieldType.String;
             }
             else if (Peek16Bit(0x03, 0x00)) //start of a nested data structure
-            {
-                List<Field> fields = new List<Field>();
-                
+            {            
                 if (!(Data[CurrentToken+6] == 0x01 && Data[CurrentToken+7] == 0x00) && (Peek16Bit(0x0C, 0x00) || Peek16Bit(0x14, 0x00))) //it's a list, of int-values or IDs (which are int values)
                 {
-                    List<uint> values = new List<uint>();
+                    List<int> values = new List<int>();
                     values.Add(Read32BitValue());
                     while (Peek16Bit(0x14, 0x00) || Peek16Bit(0x0C, 0x00)) //whilst we still have 32-bit values to read
                         values.Add(Read32BitValue());
@@ -527,20 +524,20 @@ namespace CK2Reader
                 }
                 else if (Peek16Bit(0x90, 0x01)) //list of 64-bit doubles
                 {
-                    List<byte[]> values = new List<byte[]>();
-                    values.Add(Read(8));
-                    while (Peek16Bit(0x90, 0x01))
-                        values.Add(Read(8));
-                    field.dataType = FieldType.Array64BitFloat;
+                    List<float> values = new List<float>();
+                    do
+                        values.Add(BitConverter.ToInt64(Read(8), 0) / (float)Math.Pow(2, 15));
+                    while (Peek16Bit(0x90, 0x01));
+                    field.dataType = FieldType.DoubleArray;
                     field.data = values;
                 }
                 else if (Peek16Bit(0x0D, 0x00)) //list of 32-bit floats. NOTE it seems all values are 0???
                 {
-                    List<byte[]> values = new List<byte[]>();
-                    values.Add(Read(4));
-                    while (Peek16Bit(0x0D, 0x00))
-                        values.Add(Read(4));
-                    field.dataType = FieldType.Array32BitFloat;
+                    List<float> values = new List<float>();
+                    do
+                        values.Add(BitConverter.ToInt32(Read(4), 0) / (float)Math.Pow(2, 15));
+                    while (Peek16Bit(0x0D, 0x00));
+                    field.dataType = FieldType.FloatArray;
                     field.data = values;
                 }
                 else if (Peek16Bit(0x14, 0x00) || Peek16Bit(0x0C, 0x00)) //list of e.g. relations. it's a list of 32-bit:{nested}.
@@ -556,6 +553,7 @@ namespace CK2Reader
                 }
                 else
                 {
+                    List<Field> fields = new List<Field>();
                     while (!Peek16Bit(0x04, 0x00)) //0x04 0x00 is the end of a nested data structure
                         fields.Add(ReadField());
                     field.dataType = FieldType.Object;
@@ -565,20 +563,15 @@ namespace CK2Reader
                 Consume(0x04);
                 Consume(0x00);
             }
-            else if (Peek16Bit(0x14, 0x00)) //ID
-            {
-                field.data = Read32BitValue();
-                field.dataType = FieldType.ID32Bit;
-            }
-            else if (Peek16Bit(0x0C, 0x00)) //a 32-bit value
+            else if (Peek16Bit(0x14, 0x00) || Peek16Bit(0x0C, 0x00)) //ID or a 32-bit value
             {
                 field.data = Read32BitValue();
                 field.dataType = FieldType.ID32Bit;
             }
             else if (Peek16Bit(0xE7, 0x01)) //64-bit floating number
             {
-                field.data = Read(8); //TODO: work out what this thing even is. Double?
-                field.dataType = FieldType.Float64Bit;
+                field.data = BitConverter.ToInt64(Read(8), 0) / (double)Math.Pow(2, 15);
+                field.dataType = FieldType.Double;
             }
             else if (Peek16Bit(0x0E, 0x00)) //boolean - 01 for 'yes', 00 for 'no.
             {
@@ -591,7 +584,7 @@ namespace CK2Reader
                 field.dataType = FieldType.Enum;
             }
             if (field.data == null)
-                System.Diagnostics.Debugger.Break();
+                throw new InvalidOperationException(String.Format("Found ID {0} and have no matching clause", field.id));
             return field;
         }
 
@@ -599,6 +592,8 @@ namespace CK2Reader
         {
             Field decodedField = new Field();
             decodedField.idType = FieldType.String;
+            decodedField.dataType = f.dataType;
+            decodedField.data = f.data;
             switch(f.idType)
             {
                 case FieldType.ID16Bit:
@@ -611,7 +606,6 @@ namespace CK2Reader
                             undefinedSet.Add(String.Format("ID: {0:X} around location {1:X} with data {2}", f.id, f.location, f.ToDataString()));
                             undefinedIDs.Add((ushort)f.id);
                         }
-
                     }
                     decodedField.id = id;
                     break;
@@ -622,22 +616,51 @@ namespace CK2Reader
                     decodedField.id = f.id;
                     break;
             }
-
-            switch(f.dataType)
-            {
-                case FieldType.Bool:
-                case FieldType.String:
-                    decodedField.data = f.data;
-                    decodedField.dataType = f.dataType;
-                    break;
-                case FieldType.Object:
-                    decodedField.data = ((List<Field>)f.data).Select(t => DecodeField(t)).ToList();
-                    decodedField.dataType = f.dataType;
-                    break;
-                default:
-                    break;
-            }
+            if(f.dataType == FieldType.Object)
+                 decodedField.data = ((List<Field>)f.data).Select(t => DecodeField(t)).ToList();
             return decodedField;
+        }
+
+        private CK2Game PopulateGame(List<Field> fields)
+        {
+            //at this point, all fields are decoded (string IDs and parsed data). Just need to map them.
+            CK2Game game = new CK2Game();
+            MapForEach(fields,
+                new Dictionary<string, Action<object>>(){
+                    {"version", val => game.Version = val.ToString()},
+                    {"date", val => game.CurrentDate = DateTime.Parse((string)val)},
+                    {"player", val => game.PlayerID = BuildIdentifier(val) },
+                    {"savelocation", val => game.FilePath = val.ToString()}
+                });
+            
+            return new CK2Game();
+        }
+
+        private Identifier BuildIdentifier(object data)
+        {
+            List<Field> fields = (List<Field>)data;
+            Expect(fields, 2);
+            Identifier id = new Identifier();
+            id.ID = (int)GetFieldByID(fields, "id");
+            id.Type = (int)GetFieldByID(fields, "type");
+            return id;
+        }
+
+        private void Expect(List<Field> data, int count)
+        {
+            if (data.Count != count)
+                throw new ArgumentOutOfRangeException();
+        }
+
+        private object GetFieldByID(List<Field> fieldList, string id)
+        {
+            return fieldList.FirstOrDefault(t => ((string)t.id) == id).data;
+        }
+
+        private void MapForEach(IEnumerable<Field> items, Dictionary<string, Action<object>> actions)
+        {
+            foreach(Field f in items)
+                actions[(string)f.id](f.data);
         }
     }
 }
